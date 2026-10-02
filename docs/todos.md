@@ -102,17 +102,17 @@ Goal: end-to-end chat UI streaming from FastAPI, no real retrieval yet.
 
 Goal: SEC filings in the corpus are parsed, chunked, embedded, and stored in Supabase.
 
-- [ ] `ingest/` scripts (or CLI entrypoint) for one-off corpus loading
-- [ ] HTML → normalized Markdown extraction (preserve page/section metadata)
-- [ ] Chunking strategy (size + overlap; store chunk index, page, section, ticker, filing type, year)
-- [ ] Write `source_documents` rows with filing metadata from `manifest.json`
-- [ ] Write `document_chunks` rows with text + metadata
-- [ ] OpenAI embedding generation → store `vector(1536)` per chunk
-- [ ] Generated `tsvector` populated for full-text search
-- [ ] Idempotent re-run (skip already-ingested documents)
-- [ ] Unit tests: chunking logic, metadata extraction
-- [ ] Run ingestion on full sample corpus (25 filings × 5 companies)
-- [ ] Verify: chunks exist in Supabase; spot-check a known passage (e.g. Apple revenue mix table)
+- [x] `ingest/` scripts (or CLI entrypoint) for one-off corpus loading
+- [x] HTML → normalized Markdown and lossless Docling JSON extraction
+- [x] Chunking strategy (800-token cap; store chunk index, page, section, ticker, filing type, year)
+- [x] Write `source_documents` rows with filing metadata from `manifest.json`
+- [x] Write `document_chunks` rows with text + metadata
+- [x] OpenAI embedding generation → store `vector(1536)` per chunk
+- [x] Generated `tsvector` populated for full-text search
+- [x] Idempotent re-run (skip already-ingested chunks)
+- [x] Unit tests: chunking logic, metadata extraction
+- [x] Run ingestion on full sample corpus (25 filings × 5 companies)
+- [x] Verify: chunks exist in Supabase; spot-check a known passage (e.g. Apple revenue mix table)
 
 ---
 

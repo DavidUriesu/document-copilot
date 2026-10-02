@@ -26,6 +26,41 @@ Alternatively, run `app/main.py` using your IDE's Run button. The API is availab
 
 Stop the server with `Ctrl+C` or your IDE's Stop button.
 
+## Ingest source documents
+
+After converting the downloaded filings to Markdown, load them into Supabase:
+
+```powershell
+uv run python ingest/source_documents.py
+```
+
+The loader upserts filings by accession number, so it is safe to rerun.
+
+Preview chunking locally without making API calls or database writes:
+
+```powershell
+uv run python ingest/pipeline.py
+```
+
+Exercise the paid ingestion path with exactly one chunk:
+
+```powershell
+uv run python ingest/pipeline.py --accession <accession> --max-chunks 1 --upload
+```
+
+Only after that check succeeds, ingest the complete corpus explicitly:
+
+```powershell
+uv run python ingest/pipeline.py --upload --full
+```
+
+Verify chunk continuity, embedding metadata, full-text vectors, and a known Apple
+passage:
+
+```powershell
+uv run python ingest/verify.py
+```
+
 ## Maintain
 
 ```powershell
