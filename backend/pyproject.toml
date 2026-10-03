@@ -29,6 +29,11 @@ packages = ["app"]
 add-bounds = "exact"
 exclude-newer = "7 days"
 
+[tool.pytest.ini_options]
+markers = [
+    "integration: tests that require live external services",
+]
+
 [dependency-groups]
 dev = [
     "docling==2.130.0",
