@@ -24,8 +24,14 @@ async def create_user_client(access_token: str) -> AsyncClient:
 
 async def create_service_role_client() -> AsyncClient:
     """Create a privileged backend client that bypasses row-level security."""
-    return await acreate_client(
+    key = settings.supabase_service_role_key
+    client = await acreate_client(
         settings.supabase_url,
-        settings.supabase_service_role_key,
-        _client_options(settings.supabase_service_role_key),
+        key,
+        AsyncClientOptions(auto_refresh_token=False, persist_session=False),
     )
+    if key.startswith("sb_secret_"):
+        # supabase-py 2.31 still copies API keys into Authorization. Modern
+        # secret keys authenticate through apikey and must not be parsed as JWTs.
+        client.options.headers.pop("Authorization", None)
+    return client

@@ -134,20 +134,20 @@ Goal: a user question returns ranked, relevant source passages.
 
 Goal: grounded answers with enforced citations — the core product contract.
 
-Implementation plan: [phase-6-agent-grounding-plan.md](phase-6-agent-grounding-plan.md)
-
-- [ ] `assistant/instructions.md` — product contract (cite everything, refuse to invent, no stock picks)
-- [ ] PydanticAI agent with typed deps (`DocumentAgentDeps`) and output (`GroundedAnswer`)
-- [ ] Agent tools: `search_filings`, `read_chunk`, `read_surrounding_chunks`
-- [ ] `chat/orchestrator.py` — one turn: retrieve → agent → validate → stream → persist
-- [ ] `grounding/validator.py` — every citation maps to a retrieved passage; fail closed on violation
-- [ ] `chat/streaming.py` — AI SDK-compatible stream (text deltas + citation metadata parts)
-- [ ] Persist `message_citations` linked to assistant messages
-- [ ] Unit tests: citation validation, grounding enforcement, message conversion
-- [ ] Verify against [client-brief example questions](client-brief.md#example-analyst-questions):
-  - [ ] Answers cite specific filings and pages
-  - [ ] Under-specified questions get "not enough evidence" responses
-  - [ ] Question 10 (generative AI margins) refuses to infer beyond filings
+- [x] `assistant/instructions.md` — product contract (cite everything, refuse to invent, no stock picks)
+- [x] PydanticAI agent with typed deps (`DocumentAgentDeps`) and output (`GroundedAnswer`)
+- [x] Agent tools: `search_filings`, `read_chunk`, `read_surrounding_chunks`
+- [x] `chat/orchestrator.py` — one turn: retrieve → agent → validate → stream → persist
+- [x] `grounding/validator.py` — every citation maps to a retrieved passage; fail closed on violation
+- [x] `chat/streaming.py` — AI SDK-compatible stream (text deltas + citation metadata parts)
+- [x] Persist `message_citations` linked to assistant messages
+- [x] Unit tests: citation validation, grounding enforcement, message conversion
+- [x] Verify against [client-brief example questions](client-brief.md#example-analyst-questions):
+  - [x] Answers cite specific filings with section, SEC URL, chunk ID, and
+        verbatim excerpt (page number optional because HTML extraction does not
+        preserve it reliably)
+  - [x] Under-specified questions get "not enough evidence" responses
+  - [x] Question 10 (generative AI margins) refuses to infer beyond filings
 
 ---
 

@@ -76,9 +76,7 @@ async def run(args: argparse.Namespace) -> None:
     )
 
     seed_count = sum(passage.is_seed for passage in passages)
-    print(
-        f"Retrieved {len(passages)} passages from {seed_count} fused seeds."
-    )
+    print(f"Retrieved {len(passages)} passages from {seed_count} fused seeds.")
     for position, passage in enumerate(passages, start=1):
         print(format_passage(position, passage))
 

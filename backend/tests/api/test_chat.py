@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.auth.dependencies import CurrentUser, get_current_user
-from app.chat.streaming import STUB_REPLY
+from app.chat.orchestrator import CompletedTurn
 from app.main import app
 
 USER_ID = UUID("851b7b4c-d38b-4c4f-b52d-3ca3aece1ed0")
@@ -89,9 +89,7 @@ def test_create_thread_trims_title(authenticated_client: TestClient) -> None:
     assert create.await_args.args[2] == "Revenue"
 
 
-@pytest.mark.parametrize(
-    "owner, expected_status", [(None, 404), (OTHER_USER_ID, 403)]
-)
+@pytest.mark.parametrize("owner, expected_status", [(None, 404), (OTHER_USER_ID, 403)])
 def test_message_history_enforces_ownership(
     authenticated_client: TestClient, owner: UUID | None, expected_status: int
 ) -> None:
@@ -127,11 +125,18 @@ def test_load_message_history(authenticated_client: TestClient) -> None:
 
 
 def test_streams_reply_then_persists_turn(authenticated_client: TestClient) -> None:
-    persist = AsyncMock()
+    run_turn = AsyncMock(
+        return_value=CompletedTurn(
+            message_id=UUID("031b934a-0494-48c6-a276-02bdb57b9fa3"),
+            answer="Grounded answer [1]",
+            parts=[{"type": "text", "text": "Grounded answer [1]"}],
+            citations=[],
+        )
+    )
     with (
         patch("app.api.chat._clients", AsyncMock(return_value=(object(), object()))),
         patch("app.api.chat.get_thread_owner", AsyncMock(return_value=USER_ID)),
-        patch("app.api.chat.append_turn", persist),
+        patch("app.api.chat.run_chat_turn", run_turn),
     ):
         response = authenticated_client.post(
             "/chat/stream",
@@ -152,11 +157,11 @@ def test_streams_reply_then_persists_turn(authenticated_client: TestClient) -> N
     assert response.headers["content-type"].startswith("text/event-stream")
     assert '"type":"text-delta"' in response.text
     assert response.text.endswith("data: [DONE]\n\n")
-    persist.assert_awaited_once()
-    user_message = persist.await_args.args[2]
-    assistant_message = persist.await_args.args[3]
+    run_turn.assert_awaited_once()
+    user_message = run_turn.await_args.kwargs["user_message"]
     assert user_message.content == "My question"
-    assert assistant_message.content == STUB_REPLY
+    assert '"stage":"retrieving"' in response.text
+    assert "Grounded answer [1]" in response.text
 
 
 def test_stream_rejects_non_user_final_message(

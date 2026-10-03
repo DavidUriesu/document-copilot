@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+from uuid import UUID
 
 from openai import AsyncOpenAI
 from supabase import AsyncClient
 
 from app.config import settings
 from app.retrieval.fusion import reciprocal_rank_fusion
-from app.retrieval.models import RetrievalFilters, SourcePassage
+from app.retrieval.models import ChunkWindowRow, RetrievalFilters, SourcePassage
 from app.retrieval.queries import (
     fetch_chunk_windows,
     full_text_search,
@@ -85,9 +86,10 @@ class DocumentRetriever:
         best_rows = {}
         for row in rows:
             current = best_rows.get(row.chunk_id)
-            if current is None or seed_order[row.seed_chunk_id] < seed_order[
-                current.seed_chunk_id
-            ]:
+            if (
+                current is None
+                or seed_order[row.seed_chunk_id] < seed_order[current.seed_chunk_id]
+            ):
                 best_rows[row.chunk_id] = row
 
         ordered_rows = sorted(
@@ -99,26 +101,51 @@ class DocumentRetriever:
             ),
         )
         return [
-            SourcePassage(
-                chunk_id=row.chunk_id,
-                document_id=row.document_id,
-                chunk_index=row.chunk_index,
-                content=row.content,
-                page_number=row.page_number,
-                section=row.section,
-                ticker=row.ticker,
-                company_name=row.company_name,
-                filing_type=row.filing_type,
-                filing_date=row.filing_date,
-                report_date=row.report_date,
-                fiscal_year=row.fiscal_year,
-                accession_number=row.accession_number,
-                source_url=row.source_url,
-                rrf_score=fused_scores[row.seed_chunk_id],
-                is_seed=row.chunk_id in fused_scores,
+            self._source_passage(
+                row, fused_scores[row.seed_chunk_id], row.chunk_id in fused_scores
             )
             for row in ordered_rows
         ]
+
+    async def read_chunk(self, chunk_id: UUID) -> SourcePassage | None:
+        """Read one exact corpus chunk by its stable ID."""
+        passages = await self.read_surrounding_chunks(chunk_id, 0)
+        return passages[0] if passages else None
+
+    async def read_surrounding_chunks(
+        self, chunk_id: UUID, window: int = DEFAULT_NEIGHBOR_WINDOW
+    ) -> list[SourcePassage]:
+        """Read a bounded same-document window around one chunk."""
+        if window < 0:
+            raise ValueError("window must not be negative")
+        rows = await fetch_chunk_windows(self._database, [chunk_id], window)
+        return [
+            self._source_passage(row, rrf_score=0.0, is_seed=row.chunk_id == chunk_id)
+            for row in rows
+        ]
+
+    @staticmethod
+    def _source_passage(
+        row: ChunkWindowRow, rrf_score: float, is_seed: bool
+    ) -> SourcePassage:
+        return SourcePassage(
+            chunk_id=row.chunk_id,
+            document_id=row.document_id,
+            chunk_index=row.chunk_index,
+            content=row.content,
+            page_number=row.page_number,
+            section=row.section,
+            ticker=row.ticker,
+            company_name=row.company_name,
+            filing_type=row.filing_type,
+            filing_date=row.filing_date,
+            report_date=row.report_date,
+            fiscal_year=row.fiscal_year,
+            accession_number=row.accession_number,
+            source_url=row.source_url,
+            rrf_score=rrf_score,
+            is_seed=is_seed,
+        )
 
     async def _embed_query(self, query: str) -> list[float]:
         response = await self._openai.embeddings.create(

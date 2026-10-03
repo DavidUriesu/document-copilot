@@ -5,27 +5,28 @@ from datetime import datetime
 from typing import Annotated, Any
 from uuid import UUID
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
+from openai import AsyncOpenAI
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from supabase import AsyncClient
 
 from app.auth.dependencies import CurrentUser, get_current_user
-from app.chat.messages import (
-    ChatStreamRequest,
-    PersistedMessage,
-    submitted_user_message,
-)
+from app.chat.messages import ChatStreamRequest, submitted_user_message
+from app.chat.orchestrator import run_chat_turn
 from app.chat.streaming import (
-    STUB_REPLY,
+    citation_event,
+    error_event,
     finish_events,
     reply_chunks,
     start_events,
+    status_event,
     stream_ids,
     text_delta_event,
 )
+from app.config import settings
 from app.database.chats import (
-    append_turn,
     create_thread,
     get_thread_owner,
     list_messages,
@@ -34,6 +35,7 @@ from app.database.chats import (
 from app.database.supabase import create_service_role_client, create_user_client
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+logger = structlog.get_logger()
 
 
 class ThreadCreate(BaseModel):
@@ -88,7 +90,9 @@ async def _require_owner(
 ) -> None:
     owner_id = await get_thread_owner(service_client, thread_id)
     if owner_id is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Thread not found"
+        )
     if owner_id != user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -133,7 +137,7 @@ async def stream_chat(
     body: ChatStreamRequest,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
 ) -> StreamingResponse:
-    """Stream a stubbed assistant reply and persist the completed turn."""
+    """Generate, validate, persist, and stream one grounded assistant turn."""
     try:
         thread_id = UUID(body.thread_id)
     except ValueError as exc:
@@ -156,17 +160,30 @@ async def stream_chat(
     async def events() -> AsyncIterator[str]:
         for event in start_events(message_id, text_id):
             yield event
-        for chunk in reply_chunks():
-            yield text_delta_event(text_id, chunk)
-
-        assistant_message = PersistedMessage(
-            content=STUB_REPLY,
-            parts=[{"type": "text", "text": STUB_REPLY}],
-        )
-        await append_turn(user_client, thread_id, user_message, assistant_message)
-
-        for event in finish_events(text_id):
-            yield event
+        yield status_event("retrieving")
+        try:
+            turn = await run_chat_turn(
+                user_id=current_user.id,
+                thread_id=thread_id,
+                user_message=user_message,
+                user_client=user_client,
+                openai_client=AsyncOpenAI(api_key=settings.openai_api_key),
+                assistant_message_id=UUID(message_id),
+            )
+            for chunk in reply_chunks(turn.answer):
+                yield text_delta_event(text_id, chunk)
+            for citation in turn.citations:
+                yield citation_event(citation.model_dump(mode="json"))
+            for event in finish_events(text_id):
+                yield event
+        except Exception:  # noqa: BLE001 - streaming boundary must emit a safe error
+            await logger.aexception(
+                "grounded_chat_turn_failed",
+                thread_id=str(thread_id),
+                user_id=str(current_user.id),
+            )
+            yield error_event()
+            yield "data: [DONE]\n\n"
 
     return StreamingResponse(
         events(),

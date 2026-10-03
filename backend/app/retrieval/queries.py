@@ -2,13 +2,36 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date
 from typing import Any
 from uuid import UUID
 
+from postgrest.exceptions import APIError
 from supabase import AsyncClient
 
 from app.retrieval.models import ChunkWindowRow, RankedChunk, RetrievalFilters
+
+JWT_CLOCK_SKEW_RETRY_DELAYS = (1.0, 2.0, 4.0)
+
+
+def _is_transient_jwt_clock_skew(exc: APIError) -> bool:
+    return exc.code == "PGRST303" and exc.message == "JWT issued at future"
+
+
+async def _execute_rpc(
+    client: AsyncClient,
+    name: str,
+    params: dict[str, object],
+) -> Any:
+    for delay in JWT_CLOCK_SKEW_RETRY_DELAYS:
+        try:
+            return await client.rpc(name, params).execute()
+        except APIError as exc:
+            if not _is_transient_jwt_clock_skew(exc):
+                raise
+            await asyncio.sleep(delay)
+    return await client.rpc(name, params).execute()
 
 
 def _filter_params(filters: RetrievalFilters) -> dict[str, object]:
@@ -36,14 +59,15 @@ async def semantic_search(
     candidate_limit: int,
 ) -> list[RankedChunk]:
     """Return chunks ordered by cosine similarity."""
-    response = await client.rpc(
+    response = await _execute_rpc(
+        client,
         "match_document_chunks_semantic",
         {
             "query_embedding": query_embedding,
             "candidate_limit": candidate_limit,
             **_filter_params(filters),
         },
-    ).execute()
+    )
     return [_ranked_chunk(row) for row in response.data]
 
 
@@ -54,14 +78,15 @@ async def full_text_search(
     candidate_limit: int,
 ) -> list[RankedChunk]:
     """Return chunks ordered by PostgreSQL full-text relevance."""
-    response = await client.rpc(
+    response = await _execute_rpc(
+        client,
         "match_document_chunks_full_text",
         {
             "query_text": query,
             "candidate_limit": candidate_limit,
             **_filter_params(filters),
         },
-    ).execute()
+    )
     return [_ranked_chunk(row) for row in response.data]
 
 
@@ -93,11 +118,12 @@ async def fetch_chunk_windows(
     window_size: int,
 ) -> list[ChunkWindowRow]:
     """Hydrate seed chunks and their same-document neighbors."""
-    response = await client.rpc(
+    response = await _execute_rpc(
+        client,
         "get_document_chunk_window",
         {
             "seed_chunk_ids": [str(chunk_id) for chunk_id in seed_chunk_ids],
             "window_size": window_size,
         },
-    ).execute()
+    )
     return [_window_row(row) for row in response.data]

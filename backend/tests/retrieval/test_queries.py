@@ -3,9 +3,11 @@
 import asyncio
 from dataclasses import dataclass
 from typing import Any
+from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
 import pytest
+from postgrest.exceptions import APIError
 
 from app.retrieval.models import RetrievalFilters
 from app.retrieval.queries import (
@@ -134,3 +136,59 @@ def test_malformed_rpc_row_fails_at_boundary() -> None:
 
     with pytest.raises(ValueError):
         asyncio.run(full_text_search(client, "query", RetrievalFilters(), 10))
+
+
+def test_transient_supabase_jwt_clock_skew_is_retried() -> None:
+    class FlakyRpcCall:
+        attempts = 0
+
+        async def execute(self) -> Response:
+            self.attempts += 1
+            if self.attempts == 1:
+                raise APIError(
+                    {
+                        "message": "JWT issued at future",
+                        "code": "PGRST303",
+                        "hint": None,
+                        "details": None,
+                    }
+                )
+            return Response([ranked_row()])
+
+    call = FlakyRpcCall()
+    client = FakeClient([])
+    client.rpc = lambda _name, _params: call
+
+    with patch("app.retrieval.queries.asyncio.sleep", AsyncMock()) as sleep:
+        results = asyncio.run(
+            full_text_search(client, "query", RetrievalFilters(), 10)
+        )
+
+    assert results[0].chunk_id == UUID(CHUNK_ID)
+    assert call.attempts == 2
+    sleep.assert_awaited_once_with(1.0)
+
+
+def test_other_api_errors_are_not_retried() -> None:
+    class FailingRpcCall:
+        attempts = 0
+
+        async def execute(self) -> Response:
+            self.attempts += 1
+            raise APIError(
+                {
+                    "message": "permission denied",
+                    "code": "42501",
+                    "hint": None,
+                    "details": None,
+                }
+            )
+
+    call = FailingRpcCall()
+    client = FakeClient([])
+    client.rpc = lambda _name, _params: call
+
+    with pytest.raises(APIError, match="permission denied"):
+        asyncio.run(full_text_search(client, "query", RetrievalFilters(), 10))
+
+    assert call.attempts == 1

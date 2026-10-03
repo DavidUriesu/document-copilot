@@ -3,6 +3,13 @@
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    UserPromptPart,
+)
 
 
 class UIMessage(BaseModel):
@@ -47,3 +54,15 @@ def submitted_user_message(messages: list[UIMessage]) -> PersistedMessage:
         raise ValueError("The final user message must contain text")
 
     return PersistedMessage(content=text, parts=message.parts)
+
+
+def model_history(rows: list[dict[str, Any]]) -> list[ModelMessage]:
+    """Convert authoritative persisted text into PydanticAI message history."""
+    history: list[ModelMessage] = []
+    for row in rows:
+        content = str(row["content"])
+        if row["role"] == "user":
+            history.append(ModelRequest(parts=[UserPromptPart(content)]))
+        elif row["role"] == "assistant":
+            history.append(ModelResponse(parts=[TextPart(content)]))
+    return history

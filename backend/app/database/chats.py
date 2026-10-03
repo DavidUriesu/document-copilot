@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 from supabase import AsyncClient
 
+from app.assistant.outputs import CitationView
 from app.chat.messages import PersistedMessage
 
 THREAD_FIELDS = "id,user_id,title,created_at,updated_at"
@@ -49,9 +50,7 @@ async def get_thread_owner(client: AsyncClient, thread_id: UUID) -> UUID | None:
     return UUID(response.data[0]["user_id"])
 
 
-async def list_messages(
-    client: AsyncClient, thread_id: UUID
-) -> list[dict[str, Any]]:
+async def list_messages(client: AsyncClient, thread_id: UUID) -> list[dict[str, Any]]:
     """Load a thread's messages in conversational order."""
     response = await (
         client.table("chat_messages")
@@ -104,3 +103,39 @@ async def append_turn(
         .eq("id", str(thread_id))
         .execute()
     )
+
+
+async def append_grounded_turn(
+    client: AsyncClient,
+    thread_id: UUID,
+    user_message: PersistedMessage,
+    assistant_message: PersistedMessage,
+    citations: list[CitationView],
+    user_message_id: UUID | None = None,
+    assistant_message_id: UUID | None = None,
+) -> tuple[UUID, UUID]:
+    """Atomically persist a complete validated turn and its citations."""
+    user_message_id = user_message_id or uuid4()
+    assistant_message_id = assistant_message_id or uuid4()
+    response = await client.rpc(
+        "append_grounded_turn",
+        {
+            "p_thread_id": str(thread_id),
+            "p_user_message_id": str(user_message_id),
+            "p_user_content": user_message.content,
+            "p_user_parts": user_message.parts,
+            "p_assistant_message_id": str(assistant_message_id),
+            "p_assistant_content": assistant_message.content,
+            "p_assistant_parts": assistant_message.parts,
+            "p_citations": [
+                {
+                    "chunk_id": str(citation.chunk_id),
+                    "citation_index": citation.index,
+                    "excerpt": citation.excerpt,
+                }
+                for citation in citations
+            ],
+        },
+    ).execute()
+    row = response.data[0]
+    return UUID(row["user_message_id"]), UUID(row["assistant_message_id"])

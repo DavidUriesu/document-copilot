@@ -3,9 +3,12 @@
 import json
 
 from app.chat.streaming import (
+    citation_event,
+    error_event,
     finish_events,
     reply_chunks,
     start_events,
+    status_event,
     text_delta_event,
 )
 
@@ -40,3 +43,21 @@ def test_reply_chunks_reassemble_original_text() -> None:
     assert "".join(reply_chunks("A deterministic reply", chunk_size=4)) == (
         "A deterministic reply"
     )
+
+
+def test_status_and_citation_parts_follow_data_protocol() -> None:
+    assert _payload(status_event("retrieving")) == {
+        "type": "data-status",
+        "data": {"stage": "retrieving"},
+        "transient": True,
+    }
+    assert _payload(citation_event({"index": 1})) == {
+        "type": "data-citation",
+        "data": {"index": 1},
+    }
+
+
+def test_error_event_does_not_include_exception_details() -> None:
+    payload = _payload(error_event())
+    assert payload["type"] == "error"
+    assert "provider" not in str(payload).lower()

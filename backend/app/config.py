@@ -25,9 +25,8 @@ class Settings(BaseSettings):
     database_url: str = Field(min_length=1)
 
     openai_api_key: str = Field(min_length=1)
-    openai_embedding_model: str = Field(
-        default="text-embedding-3-small", min_length=1
-    )
+    openai_chat_model: str = Field(min_length=1)
+    openai_embedding_model: str = Field(default="text-embedding-3-small", min_length=1)
     openai_embedding_dimensions: int = Field(default=1536, gt=0)
 
     allowed_origins: Annotated[list[str], NoDecode]
